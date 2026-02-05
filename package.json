@@ -32,10 +32,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexpalaz/decern-gate.git"
+    "url": "git+https://github.com/AlexPalaz/decern-gate.git"
   },
   "homepage": "https://decern.dev",
   "bugs": {
-    "url": "https://github.com/alexpalaz/decern-gate/issues"
+    "url": "https://github.com/AlexPalaz/decern-gate/issues"
   }
 }
