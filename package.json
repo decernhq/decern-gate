@@ -29,5 +29,13 @@
     "@types/node": "^25.2.0",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexpalaz/decern-gate.git"
+  },
+  "homepage": "https://decern.dev",
+  "bugs": {
+    "url": "https://github.com/alexpalaz/decern-gate/issues"
   }
 }
