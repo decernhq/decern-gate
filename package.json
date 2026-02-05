@@ -1,6 +1,7 @@
 {
   "name": "decern-gate",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "CI gate: require an approved Decern decision for high-impact changes",
   "type": "module",
   "main": "dist/main.js",
@@ -21,7 +22,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "devDependencies": {
     "@types/node": "^25.2.0",
