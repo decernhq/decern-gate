@@ -108,7 +108,7 @@ function getPrOrCommitText(): string {
 // --- Validate: call API ---
 
 type ValidateResult =
-  | { ok: true }
+  | { ok: true; observationOnly?: boolean }
   | { ok: false; status: number; reason: string; body?: unknown };
 
 async function validateDecision(decisionId: string): Promise<ValidateResult> {
@@ -130,9 +130,14 @@ async function validateDecision(decisionId: string): Promise<ValidateResult> {
     });
     clearTimeout(timeoutId);
 
-    const body = (await res.json().catch(() => ({}))) as { valid?: boolean; reason?: string; status?: string };
+    const body = (await res.json().catch(() => ({}))) as {
+      valid?: boolean;
+      observationOnly?: boolean;
+      reason?: string;
+      status?: string;
+    };
     if (res.status === 200 && body.valid === true) {
-      return { ok: true };
+      return { ok: true, observationOnly: body.observationOnly === true };
     }
     const reason = body.reason ?? `HTTP ${res.status}`;
     const statusDetail = body.status != null ? ` (decision status: ${body.status})` : "";
@@ -202,6 +207,12 @@ export async function run(): Promise<number> {
   for (const id of ids) {
     const result = await validateDecision(id);
     if (result.ok) {
+      if (result.observationOnly) {
+        log(`Validation result: observation only (decision ${id})`);
+        log("");
+        log("Observation only: decision is proposed, not approved. Upgrade to Team for enforcement.");
+        return 0;
+      }
       log(`Validation result: OK (decision ${id} is approved)`);
       return 0;
     }
