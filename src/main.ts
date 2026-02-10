@@ -174,62 +174,105 @@ function log(line: string): void {
   console.log(line);
 }
 
+const MAX_FILES_LIST = 10;
+
+/** Format a list of paths for output; truncate with "… and N more" if needed. */
+function formatFileList(files: string[], max: number = MAX_FILES_LIST): string {
+  if (files.length === 0) return "(none)";
+  if (files.length <= max) return files.join(", ");
+  return `${files.slice(0, max).join(", ")} … and ${files.length - max} more`;
+}
+
 /** Runs the gate; returns exit code (0 = pass, 1 = fail). */
 export async function run(): Promise<number> {
   const missingEnv = [];
   if (!DECERN_BASE_URL) missingEnv.push("DECERN_BASE_URL");
   if (!DECERN_CI_TOKEN) missingEnv.push("DECERN_CI_TOKEN");
 
+  log("decern-gate — high-impact change check");
+  log("");
+
   let changedFiles: string[];
   try {
     changedFiles = getChangedFiles();
   } catch {
-    log("Changed files: error");
+    log("Diff: could not compute (git error)");
     log("Decision required: YES");
     log("Reason: cannot compute diff");
+    log("");
+    log("Gate: blocked — fix git refs or set CI_BASE_SHA / CI_HEAD_SHA.");
     return 1;
   }
 
-  log(`Changed files: ${changedFiles.length}`);
+  if (CI_BASE_SHA && CI_HEAD_SHA) {
+    log(`Diff: ${CI_BASE_SHA.slice(0, 7)} … ${CI_HEAD_SHA.slice(0, 7)}`);
+  }
+  log(`Changed files (${changedFiles.length}): ${formatFileList(changedFiles)}`);
+  log("");
+
   const policy = isDecisionRequired(changedFiles);
-  log(`Decision required: ${policy.required ? "YES" : "NO"}`);
+  const matchedFiles = policy.required ? changedFiles.filter(pathMatchesRequired) : [];
+
+  log(`Policy: decision required — ${policy.required ? "YES" : "NO"}`);
   log(`Reason: ${policy.reason}`);
+  if (matchedFiles.length > 0) {
+    log(`Matched (high-impact): ${formatFileList(matchedFiles)}`);
+  }
+  log("");
 
   if (!policy.required) {
+    log("Gate: passed (no high-impact patterns matched).");
     return 0;
   }
 
   const text = getPrOrCommitText();
   const ids = extractDecisionIds(text);
-  log(`Found decision refs: ${ids.length > 0 ? ids.join(", ") : "none"}`);
+
+  log(`References: found ${ids.length} decision ref(s) in PR/commit — ${ids.length > 0 ? ids.join(", ") : "none"}`);
 
   if (ids.length === 0) {
     log("");
-    log("High-impact change detected. Add 'decern:<id>' to PR description or commit message referencing an APPROVED decision.");
+    log("Gate: blocked — high-impact change detected.");
+    log("");
+    log("Add a Decern decision reference to the PR description or commit message (e.g. decern:<id>, DECERN-<id>, or link to /decisions/<id>). The decision must be approved in Decern before merge.");
+    if (DECERN_BASE_URL) {
+      log(`Dashboard: ${DECERN_BASE_URL}`);
+    }
     return 1;
   }
 
   if (missingEnv.length > 0) {
     log("");
-    log(`Missing required env: ${missingEnv.join(", ")}. Set them to validate the decision.`);
+    log(`Gate: blocked — missing env: ${missingEnv.join(", ")}. Set them in CI to validate decisions.`);
     return 1;
   }
 
+  log("");
   for (const id of ids) {
     const result = await validateDecision(id);
     if (result.ok) {
       if (result.observationOnly) {
-        log(`Validation result: observation only (decision ${id} — status: observation_only, gate passes)`);
+        log(`Decision ${id}: observation only (status: observation_only — gate passes)`);
         log("");
         log("Free plan: observation only — decision is proposed, not approved. Upgrade to Team for enforcement.");
+        log("");
+        log("Gate: passed (observation only).");
         return 0;
       }
-      log(`Validation result: OK (decision ${id} is approved)`);
+      log(`Decision ${id}: approved.`);
+      log("");
+      log("Gate: passed.");
       return 0;
     }
-    log(`Validation result: FAIL for ${id} — ${result.reason}`);
+    log(`Decision ${id}: FAIL — ${result.reason}`);
   }
+
   log("");
-  log("High-impact change detected. Add 'decern:<id>' to PR description or commit message referencing an APPROVED decision.");
+  log("Gate: blocked — no referenced decision is approved.");
+  log("");
+  log("Ensure the decision is approved in Decern, or add a reference to an approved decision (decern:<id> in PR/commit).");
+  if (DECERN_BASE_URL) {
+    log(`Dashboard: ${DECERN_BASE_URL}`);
+  }
   return 1;
 }
