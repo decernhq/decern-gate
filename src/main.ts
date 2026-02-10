@@ -23,6 +23,11 @@ const CI_COMMIT_MESSAGE = process.env.CI_COMMIT_MESSAGE?.trim();
 
 const VALIDATE_PATH = process.env.DECERN_VALIDATE_PATH?.trim() || "/api/decision-gate/validate";
 
+/** When true, gate blocks unless the decision has the current PR linked in Decern (requires API to return hasLinkedPR). */
+const DECERN_GATE_REQUIRE_LINKED_PR =
+  process.env.DECERN_GATE_REQUIRE_LINKED_PR?.toLowerCase() === "true" ||
+  process.env.DECERN_GATE_REQUIRE_LINKED_PR === "1";
+
 export function isDecisionRequired(changedFiles: string[]): { required: true; reason: string } | { required: false; reason: string } {
   const matched = changedFiles.filter(pathMatchesRequired);
   if (matched.length > 0) {
@@ -278,6 +283,26 @@ export async function run(): Promise<number> {
       if (result.hasLinkedPR != null) {
         log(`Linked PR: ${result.hasLinkedPR ? "yes" : "no"}.`);
       }
+
+      if (DECERN_GATE_REQUIRE_LINKED_PR) {
+        if (result.hasLinkedPR === undefined) {
+          log("");
+          log(`Gate: blocked — DECERN_GATE_REQUIRE_LINKED_PR is set but the API did not return hasLinkedPR for decision ${id}. Link the PR to the decision in Decern, or ensure the validate API includes hasLinkedPR in the response.`);
+          if (DECERN_BASE_URL) {
+            log(`Dashboard: ${DECERN_BASE_URL}`);
+          }
+          return 1;
+        }
+        if (result.hasLinkedPR !== true) {
+          log("");
+          log("Gate: blocked — this PR must be linked to the decision in Decern (DECERN_GATE_REQUIRE_LINKED_PR is set).");
+          if (DECERN_BASE_URL) {
+            log(`Dashboard: ${DECERN_BASE_URL}`);
+          }
+          return 1;
+        }
+      }
+
       log("");
       log("Gate: passed.");
       return 0;

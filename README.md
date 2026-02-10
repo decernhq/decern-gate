@@ -37,6 +37,7 @@ npx decern-gate
 | `DECERN_CI_TOKEN` | Yes (when decision required) | CI token for the workspace (from Decern Dashboard → Workspace → Token CI). Never logged. |
 | `DECERN_GATE_TIMEOUT_MS` | No | Timeout for the validate API call in ms. Default: `5000`. |
 | `DECERN_VALIDATE_PATH` | No | Path to the validate endpoint. Default: `/api/decision-gate/validate`. |
+| `DECERN_GATE_REQUIRE_LINKED_PR` | No | When `true` or `1`, the gate blocks unless the decision has this PR linked in Decern (validate API must return `hasLinkedPR: true`). If the API does not return `hasLinkedPR`, the gate blocks and suggests linking the PR or updating the API. |
 | `CI_BASE_SHA` | No | Base commit for diff (e.g. target branch). |
 | `CI_HEAD_SHA` | No | Head commit for diff (e.g. current branch). |
 | `CI_PR_TITLE` | No | PR/MR title; used to extract `decern:<id>` if set. |
