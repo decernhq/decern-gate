@@ -16,9 +16,19 @@ const DB_PATH_PATTERNS = [
   "flyway/",
   "db/migrations/",
   "database/migrations/",
+  "drizzle/",
+  "alembic/",
+  "mikro-orm/",
+  "sequelize/migrations/",
+  "django/migrations/",
 ];
 
-const DB_BASENAMES = ["schema.prisma", "liquibase.properties", "flyway.conf"];
+const DB_BASENAMES = [
+  "schema.prisma",
+  "liquibase.properties",
+  "flyway.conf",
+  "alembic.ini",
+];
 
 // ---------------------------------------------------------------------------
 // 2) INFRA / IAC / DEPLOY
@@ -34,10 +44,15 @@ const INFRA_PATH_PATTERNS = [
   "manifests/",
   "ansible/",
   "packer/",
+  "bicep/",
+  "crossplane/",
+  "nomad/",
+  "serverless/",
 ];
 
 const INFRA_BASENAMES = [
   "docker-compose.yml",
+  "docker-compose.yaml",
   "kustomization.yaml",
   "skaffold.yaml",
   "Tiltfile",
@@ -46,17 +61,34 @@ const INFRA_BASENAMES = [
   ".dockerignore",
   "compose.yaml",
   "compose.yml",
+  "serverless.yml",
+  "serverless.yaml",
+  "Vagrantfile",
+  "vagrantfile",
 ];
 
 // ---------------------------------------------------------------------------
 // 3) CI / CD
 // ---------------------------------------------------------------------------
-const CI_PATH_PATTERNS = [".github/workflows/", ".github/actions/", ".circleci/", ".buildkite/"];
+const CI_PATH_PATTERNS = [
+  ".github/workflows/",
+  ".github/actions/",
+  ".circleci/",
+  ".buildkite/",
+  ".travis/",
+  ".drone/",
+];
 
 const CI_BASENAMES = [
   ".gitlab-ci.yml",
   "azure-pipelines.yml",
   "bitbucket-pipelines.yml",
+  ".travis.yml",
+  "appveyor.yml",
+  "drone.yml",
+  "woodpecker.yml",
+  ".pre-commit-config.yaml",
+  ".pre-commit-config.yml",
 ];
 
 // ---------------------------------------------------------------------------
@@ -67,6 +99,8 @@ const DEPS_BASENAMES = [
   "package-lock.json",
   "yarn.lock",
   "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
   ".npmrc",
   ".yarnrc",
   ".yarnrc.yml",
@@ -75,6 +109,9 @@ const DEPS_BASENAMES = [
   "poetry.lock",
   "Pipfile",
   "Pipfile.lock",
+  "uv.lock",
+  ".tool-versions",
+  "mise.toml",
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
@@ -89,6 +126,7 @@ const DEPS_BASENAMES = [
   "composer.json",
   "composer.lock",
   "packages.config",
+  "nuget.config",
   "CMakeLists.txt",
   "Makefile",
   "vcpkg.json",
@@ -98,6 +136,23 @@ const DEPS_BASENAMES = [
   "nx.json",
   "pnpm-workspace.yaml",
   "settings.gradle.kts",
+  "pubspec.yaml",
+  "pubspec.lock",
+  "Podfile",
+  "Podfile.lock",
+  "mix.exs",
+  "mix.lock",
+  "deps.edn",
+  "project.clj",
+  "build.boot",
+  "shard.yml",
+  "cabal.project",
+  "cabal.project.freeze",
+  "stack.yaml",
+  "WORKSPACE",
+  "WORKSPACE.bazel",
+  "BUILD.bazel",
+  "MODULE.bazel",
 ];
 
 // ---------------------------------------------------------------------------
@@ -119,7 +174,12 @@ const SECURITY_PATH_PATTERNS = [
   "rego/",
 ];
 
-const SECURITY_BASENAMES = ["CODEOWNERS", ".snyk"];
+const SECURITY_BASENAMES = [
+  "CODEOWNERS",
+  ".snyk",
+  ".gitleaks.toml",
+  ".gitleaks.yaml",
+];
 
 // ---------------------------------------------------------------------------
 // 6) API CONTRACTS / INTERFACES (path proto/; graphql/ removed to avoid false positives; schema basenames kept)
@@ -150,6 +210,19 @@ const CONFIG_BASENAMES = [
   "application.yml",
   "application.yaml",
   "application.properties",
+  "vercel.json",
+  "netlify.toml",
+  "netlify.yaml",
+  "firebase.json",
+  "wrangler.toml",
+  "railway.json",
+  "railway.toml",
+  "render.yaml",
+  "ecosystem.config.js",
+  "ecosystem.config.cjs",
+  "ecosystem.config.mjs",
+  "ecosystem.config.ts",
+  "fly.toml",
 ];
 
 // ---------------------------------------------------------------------------
@@ -161,6 +234,21 @@ const OBSERVABILITY_PATH_PATTERNS = [
   "alertmanager/",
   "otel/",
   "opentelemetry/",
+  "datadog/",
+  "sentry/",
+];
+
+const OBSERVABILITY_BASENAMES = [
+  "sentry.client.config.js",
+  "sentry.server.config.js",
+  "sentry.edge.config.js",
+  "sentry.properties",
+  "newrelic.js",
+  "newrelic.cjs",
+  "newrelic.yml",
+  "newrelic.yaml",
+  "datadog.yaml",
+  "datadog.yml",
 ];
 
 // ---------------------------------------------------------------------------
@@ -190,6 +278,7 @@ export const REQUIRED_BASENAMES: readonly string[] = [
   ...API_BASENAMES,
   ...CONFIG_BASENAMES,
   ...SECURITY_BASENAMES,
+  ...OBSERVABILITY_BASENAMES,
 ];
 
 export function pathMatchesRequired(path: string, extraPatterns?: string[]): boolean {
@@ -263,6 +352,19 @@ export function pathMatchesRequired(path: string, extraPatterns?: string[]): boo
   if (basename.startsWith("webpack.config.") && (basename.endsWith(".js") || basename.endsWith(".mjs") || basename.endsWith(".ts") || basename.endsWith(".cjs"))) return true;
   // babel.config.(js|cjs|mjs|json)
   if (basename.startsWith("babel.config.") && (basename.endsWith(".js") || basename.endsWith(".cjs") || basename.endsWith(".mjs") || basename.endsWith(".json"))) return true;
+  // firebase.*.json (e.g. firebase.console.json)
+  if (basename.startsWith("firebase.") && basename.endsWith(".json")) return true;
+  // CloudFormation / SAM templates
+  if (
+    basename.endsWith(".template.yaml") ||
+    basename.endsWith(".template.yml") ||
+    basename.endsWith(".template.json")
+  )
+    return true;
+  // Sentry config variants
+  if (basename.startsWith("sentry.") && (basename.endsWith(".config.js") || basename.endsWith(".config.ts"))) return true;
+  // Bazel BUILD (no extension)
+  if (basename === "BUILD" || basename === "BUILD.bazel") return true;
 
   return REQUIRED_BASENAMES.includes(basename);
 }
