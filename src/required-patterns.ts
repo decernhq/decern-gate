@@ -2,7 +2,7 @@
  * File patterns that require an approved decision (high-impact changes).
  * Path patterns: match via normalized.includes(pattern).
  * Basenames: match via equals or startsWith/endsWith for known variants.
- * Policy is hardcoded; no dynamic configuration.
+ * Optional extraPatterns from env DECERN_GATE_EXTRA_PATTERNS (comma-separated): path substring or basename.
  */
 
 // ---------------------------------------------------------------------------
@@ -192,8 +192,19 @@ export const REQUIRED_BASENAMES: readonly string[] = [
   ...SECURITY_BASENAMES,
 ];
 
-export function pathMatchesRequired(path: string): boolean {
+export function pathMatchesRequired(path: string, extraPatterns?: string[]): boolean {
   const normalized = path.replace(/\\/g, "/");
+  const basename = normalized.split("/").pop() ?? normalized;
+
+  if (extraPatterns && extraPatterns.length > 0) {
+    for (const p of extraPatterns) {
+      if (p.includes("/")) {
+        if (normalized.includes(p)) return true;
+      } else if (basename === p) {
+        return true;
+      }
+    }
+  }
 
   for (const p of REQUIRED_PATH_PATTERNS) {
     if (normalized.includes(p)) return true;
@@ -206,8 +217,6 @@ export function pathMatchesRequired(path: string): boolean {
     normalized.endsWith("/.github/dependabot.yaml")
   )
     return true;
-
-  const basename = normalized.split("/").pop() ?? normalized;
 
   // Terraform files (any path)
   if (

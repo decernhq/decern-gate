@@ -38,6 +38,7 @@ npx decern-gate
 | `DECERN_GATE_TIMEOUT_MS` | No | Timeout for the validate API call in ms. Default: `5000`. |
 | `DECERN_VALIDATE_PATH` | No | Path to the validate endpoint. Default: `/api/decision-gate/validate`. |
 | `DECERN_GATE_REQUIRE_LINKED_PR` | No | When `true` or `1`, the gate blocks unless the decision has this PR linked in Decern (validate API must return `hasLinkedPR: true`). If the API does not return `hasLinkedPR`, the gate blocks and suggests linking the PR or updating the API. |
+| `DECERN_GATE_EXTRA_PATTERNS` | No | Comma-separated list of extra path/basename patterns that require a decision. Paths (containing `/`) match if the file path includes the string (e.g. `my-app/config/`); otherwise treated as basename exact match (e.g. `secret.conf`). Example: `DECERN_GATE_EXTRA_PATTERNS=internal/,config/prod.json`. |
 | `CI_BASE_SHA` | No | Base commit for diff (e.g. target branch). |
 | `CI_HEAD_SHA` | No | Head commit for diff (e.g. current branch). |
 | `CI_PR_TITLE` | No | PR/MR title; used to extract `decern:<id>` if set. |

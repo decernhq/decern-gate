@@ -28,8 +28,14 @@ const DECERN_GATE_REQUIRE_LINKED_PR =
   process.env.DECERN_GATE_REQUIRE_LINKED_PR?.toLowerCase() === "true" ||
   process.env.DECERN_GATE_REQUIRE_LINKED_PR === "1";
 
+/** Extra path/basename patterns from env (comma-separated). Paths contain "/" and match via includes; otherwise basename exact match. */
+const DECERN_GATE_EXTRA_PATTERNS = (process.env.DECERN_GATE_EXTRA_PATTERNS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export function isDecisionRequired(changedFiles: string[]): { required: true; reason: string } | { required: false; reason: string } {
-  const matched = changedFiles.filter(pathMatchesRequired);
+  const matched = changedFiles.filter((f) => pathMatchesRequired(f, DECERN_GATE_EXTRA_PATTERNS));
   if (matched.length > 0) {
     return { required: true, reason: `High-impact patterns matched: ${matched.slice(0, 5).join(", ")}${matched.length > 5 ? "..." : ""}` };
   }
@@ -233,7 +239,7 @@ export async function run(): Promise<number> {
   log("");
 
   const policy = isDecisionRequired(changedFiles);
-  const matchedFiles = policy.required ? changedFiles.filter(pathMatchesRequired) : [];
+  const matchedFiles = policy.required ? changedFiles.filter((f) => pathMatchesRequired(f, DECERN_GATE_EXTRA_PATTERNS)) : [];
 
   log(`Policy: decision required — ${policy.required ? "YES" : "NO"}`);
   log(`Reason: ${policy.reason}`);
