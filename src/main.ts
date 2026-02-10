@@ -132,6 +132,7 @@ async function validateDecision(decisionId: string): Promise<ValidateResult> {
 
     const body = (await res.json().catch(() => ({}))) as {
       valid?: boolean;
+      /** true when on free plan: gate passes but decision is not enforced as approved */
       observationOnly?: boolean;
       reason?: string;
       status?: string;
@@ -139,8 +140,10 @@ async function validateDecision(decisionId: string): Promise<ValidateResult> {
     if (res.status === 200 && body.valid === true) {
       return { ok: true, observationOnly: body.observationOnly === true };
     }
-    const reason = body.reason ?? `HTTP ${res.status}`;
-    const statusDetail = body.status != null ? ` (decision status: ${body.status})` : "";
+    const rawReason = body.reason ?? `HTTP ${res.status}`;
+    const reason = rawReason.startsWith("HTTP ") ? rawReason : formatLabel(rawReason);
+    const statusDetail =
+      body.status != null ? ` (decision status: ${formatLabel(body.status)})` : "";
     return {
       ok: false,
       status: res.status,
@@ -158,6 +161,14 @@ async function validateDecision(decisionId: string): Promise<ValidateResult> {
 }
 
 // --- Output (deterministic) ---
+
+/** Turns API slugs (e.g. not_approved, proposed) into human-readable labels (Not Approved, Proposed). */
+function formatLabel(s: string): string {
+  return s
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
 
 function log(line: string): void {
   console.log(line);
@@ -208,9 +219,9 @@ export async function run(): Promise<number> {
     const result = await validateDecision(id);
     if (result.ok) {
       if (result.observationOnly) {
-        log(`Validation result: observation only (decision ${id})`);
+        log(`Validation result: observation only (decision ${id} — status: observation_only, gate passes)`);
         log("");
-        log("Observation only: decision is proposed, not approved. Upgrade to Team for enforcement.");
+        log("Free plan: observation only — decision is proposed, not approved. Upgrade to Team for enforcement.");
         return 0;
       }
       log(`Validation result: OK (decision ${id} is approved)`);
