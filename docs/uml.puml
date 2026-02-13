@@ -1,0 +1,294 @@
+@startuml decern-gate-overview
+!theme plain
+title decern-gate — Vista d’insieme (componenti)
+
+package "decern-gate" {
+  [bin] as bin
+  [main] as main
+  [judge-diff] as judge_diff
+  [required-patterns] as required_patterns
+}
+
+main --> judge_diff : getBaseAndHead, getDiffForJudge
+main --> required_patterns : pathMatchesRequired
+bin --> main : run()
+
+cloud "Runtime" {
+  main --> "process.env" : CI_*, DECERN_*
+  main --> "git" : execSync (diff, log)
+  main --> "Decern API" : validate (GET), judge (POST)
+}
+
+@enduml
+
+' ========== Diagramma di sequenza: flusso principale run() ==========
+@startuml decern-gate-sequence
+!theme plain
+title decern-gate — Sequenza (flusso run)
+
+actor CI
+participant "bin" as Bin
+participant "main\n(run)" as Main
+participant "judge-diff" as JudgeDiff
+participant "required-patterns" as Patterns
+participant "git" as Git
+participant "Decern API" as API
+
+CI -> Bin : esegue decern-gate
+Bin -> Main : run()
+
+Main -> Main : getChangedFiles()
+Main -> JudgeDiff : getBaseAndHead(CI_BASE_SHA, CI_HEAD_SHA)
+JudgeDiff -> Git : rev-parse / diff
+Git --> JudgeDiff : base, head
+JudgeDiff --> Main : { base, head }
+Main -> Git : git diff --name-only base...head
+Git --> Main : changedFiles[]
+
+Main -> Main : isDecisionRequired(changedFiles)
+Main -> Patterns : pathMatchesRequired(file, extraPatterns)
+Patterns --> Main : boolean
+Main --> Main : policy { required, reason }
+
+alt policy.required == false
+  Main --> Bin : 0 (pass)
+  Bin --> CI : exit 0
+else policy.required == true
+  Main -> Main : getPrOrCommitText()
+  Main -> Main : extractDecisionIds(text)
+  Main --> Main : ids[]
+
+  alt ids.length == 0
+    Main --> Bin : 1 (block)
+    Bin --> CI : exit 1
+  else ids.length > 0
+    loop per ogni id
+      Main -> API : GET validate?decisionId=|adrRef=
+      API --> Main : ValidateResult
+    end
+    alt nessun validate ok
+      Main --> Bin : 1 (block)
+      Bin --> CI : exit 1
+    else validate ok
+      opt DECERN_GATE_JUDGE_ENABLED
+        Main -> JudgeDiff : getDiffForJudge(base, head)
+        JudgeDiff -> Git : git diff base...head
+        Git --> JudgeDiff : raw diff
+        JudgeDiff --> Main : JudgeDiffResult
+        Main -> API : POST /judge { diff, adrRef|decisionId, ... }
+        API --> Main : { allowed, reason }
+        alt allowed == false (e non "plan" reason)
+          Main --> Bin : 1 (block)
+          Bin --> CI : exit 1
+        else allowed == true o judge unavailable (warning)
+          Main --> Bin : 0 (pass)
+          Bin --> CI : exit 0
+        end
+      else judge disabilitato
+        Main --> Bin : 0 (pass)
+        Bin --> CI : exit 0
+      end
+    end
+  end
+end
+
+@enduml
+
+' ========== Diagramma delle classi (moduli e tipi) ==========
+@startuml decern-gate-classes
+!theme plain
+title decern-gate — Moduli, tipi e operazioni
+
+package "bin.ts" {
+  class bin <<entry>> {
+    + run() via main
+  }
+}
+
+package "main.ts" {
+  class main <<module>> {
+    + run() : Promise<number>
+    + isDecisionRequired(changedFiles: string[]) : PolicyResult
+    + extractDecisionIds(text: string) : string[]
+    - getChangedFiles() : string[]
+    - getPrOrCommitText() : string
+    - getCommitMessage() : string
+    - validateRef(ref: string) : Promise<ValidateResult>
+    - callJudge(params) : Promise<JudgeResult>
+    - isAdrRef(ref: string) : boolean
+    - formatLabel(s: string) : string
+    - formatFileList(files, max?) : string
+    - log(line: string) : void
+  }
+  class ValidateResult <<union>> {
+    ok: true + decisionStatus?, hasLinkedPR?
+    **or** ok: false + status, reason, body?
+  }
+  class JudgeResult <<union>> {
+    ok: true + allowed: true + reason?
+    **or** ok: true + allowed: false + reason
+    **or** ok: false + status, reason
+  }
+  class PolicyResult <<union>> {
+    required: true + reason
+    **or** required: false + reason
+  }
+  main ..> ValidateResult : usa
+  main ..> JudgeResult : usa
+  main ..> PolicyResult : usa
+}
+
+package "judge-diff.ts" {
+  class judge_diff <<module>> {
+    + getBaseAndHead(ciBaseSha?, ciHeadSha?) : { base, head }
+    + getDiffForJudge(base, head) : JudgeDiffResult
+    - splitDiffByFile(rawDiff) : string[]
+    - pathFromSegment(segment) : string
+    - segmentIsBinary(segment) : boolean
+    - isImageOrHeavyByPath(path) : boolean
+  }
+  class JudgeDiffResult {
+    + diff: string
+    + excludedFiles: string[]
+    + truncated: boolean
+    + base: string
+    + head: string
+  }
+  judge_diff ..> JudgeDiffResult : ritorna
+}
+
+package "required-patterns.ts" {
+  class required_patterns <<module>> {
+    + pathMatchesRequired(path, extraPatterns?) : boolean
+    -- costanti (readonly) --
+    REQUIRED_PATH_PATTERNS
+    REQUIRED_BASENAMES
+  }
+}
+
+bin --> main : import run
+main --> judge_diff : getBaseAndHead, getDiffForJudge
+main --> required_patterns : pathMatchesRequired
+
+@enduml
+
+' ========== Diagramma di attività: decisioni della gate ==========
+@startuml decern-gate-activity
+!theme plain
+title decern-gate — Attività (decisioni gate)
+
+start
+:Leggi env (DECERN_BASE_URL, DECERN_CI_TOKEN, CI_*);
+:getChangedFiles()\n(getBaseAndHead, git diff --name-only);
+
+if (git ok?) then (no)
+  :Log "Gate: blocked — fix git refs";
+  stop
+endif
+
+:isDecisionRequired(changedFiles);
+
+if (policy.required?) then (no)
+  :Log "Gate: passed (no high-impact)";
+  stop
+endif
+
+:getPrOrCommitText();
+:extractDecisionIds(text) → ids;
+
+if (ids.length > 0?) then (no)
+  :Log "Gate: blocked — add Decern reference";
+  stop
+endif
+
+if (DECERN_BASE_URL e DECERN_CI_TOKEN?) then (no)
+  :Log "Gate: blocked — missing env";
+  stop
+endif
+
+:Per ogni id: validateRef(id);
+
+if (almeno uno valid?) then (no)
+  :Log "Gate: blocked — no valid decision";
+  stop
+endif
+
+if (DECERN_GATE_REQUIRE_LINKED_PR?) then (sì)
+  if (hasLinkedPR?) then (no)
+    :Log "Gate: blocked — link PR to decision";
+    stop
+  endif
+endif
+
+if (DECERN_GATE_JUDGE_ENABLED?) then (no)
+  :Log "Gate: passed";
+  stop
+endif
+
+:getDiffForJudge(base, head);
+:callJudge({ decisionRef, diff, ... });
+
+if (judge ok?) then (no)
+  :Log "Gate: blocked — judge request failed";
+  stop
+endif
+
+if (allowed?) then (sì)
+  :Log "Gate: passed";
+  stop
+endif
+
+if (reason indica "judge unavailable"\n(team plan, etc.)?) then (sì)
+  :Log "Warning: judge skipped";
+  :Log "Gate: passed";
+  stop
+endif
+
+:Log "Gate: blocked — judge: reason";
+stop
+
+@enduml
+
+' ========== Diagramma componenti (dettaglio) ==========
+@startuml decern-gate-components
+!theme plain
+title decern-gate — Componenti e dipendenze esterne
+
+component [bin] {
+  [entry] : run().then(exit)
+}
+
+component [main] {
+  [run] : flusso gate
+  [policy] : isDecisionRequired, extractDecisionIds
+  [git helpers] : getChangedFiles, getPrOrCommitText
+  [api] : validateRef, callJudge
+}
+
+component [judge-diff] {
+  [getBaseAndHead] : refs per diff
+  [getDiffForJudge] : diff con esclusioni, max 2MB
+}
+
+component [required-patterns] {
+  [pathMatchesRequired] : match high-impact
+  [patterns] : DB, infra, CI, deps, ...
+}
+
+[bin] --> [main]
+[main] --> [judge-diff]
+[main] --> [required-patterns]
+
+database "Env" as env {
+  CI_BASE_SHA\nCI_HEAD_SHA\nCI_PR_*\nDECERN_*
+}
+
+interface "Decern API" as api {
+  GET /validate
+  POST /judge
+}
+
+[main] --> env : read
+[main] --> api : fetch
+
+@enduml
