@@ -169,6 +169,8 @@ Example block: `{"allowed": false, "reason": "Diff introduces a new DB column no
 
 On non-2xx or network error, the CLI treats the judge as failed and **blocks** the gate (fail-closed).
 
+If the backend returns `allowed: false` with a reason indicating the judge feature is not available for the current plan (e.g. “Judge is available on Team plan and above.”), the CLI **does not block**: it logs the reason as a warning and passes the gate.
+
 ### Backend implementation guide (Decern or your service)
 
 The endpoint that receives the judge payload should:

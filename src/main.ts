@@ -387,6 +387,7 @@ export async function run(): Promise<number> {
       const lastRef = ids[ids.length - 1]!;
       log("");
       log(`Judge: checking diff against decision ${lastRef}...`);
+      log("Judge: building diff...");
 
       const { base: diffBase, head: diffHead } = getBaseAndHead(CI_BASE_SHA, CI_HEAD_SHA);
       const judgeDiffResult = getDiffForJudge(diffBase, diffHead);
@@ -398,6 +399,7 @@ export async function run(): Promise<number> {
         log("Warning: diff was truncated to 2MB; judge is based on partial diff.");
       }
 
+      log("Judge: analyzing diff (this may take a moment)...");
       const judgeResult = await callJudge({
         decisionRef: lastRef,
         diff: judgeDiffResult.diff,
@@ -412,6 +414,17 @@ export async function run(): Promise<number> {
         return 1;
       }
       if (!judgeResult.allowed) {
+        const r = (judgeResult.reason ?? "").toLowerCase();
+        const judgeUnavailable =
+          r.includes("team plan") ||
+          r.includes("plan and above") ||
+          (r.includes("judge") && r.includes("available") && r.includes("plan"));
+        if (judgeUnavailable) {
+          log("");
+          log(`Warning: judge skipped — ${judgeResult.reason}`);
+          log("Gate: passed.");
+          return 0;
+        }
         log("");
         log(`Gate: blocked — judge: ${judgeResult.reason}`);
         return 1;
