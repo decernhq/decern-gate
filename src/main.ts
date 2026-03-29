@@ -411,9 +411,9 @@ export async function run(): Promise<number> {
         log("Judge: no BYO LLM configured — using Decern fair-use LLM.");
       }
 
-      const lastRef = ids[ids.length - 1]!;
+      const validatedRef = id;
       log("");
-      log(`Judge: checking diff against decision ${lastRef}...`);
+      log(`Judge: checking diff against decision ${validatedRef}...`);
       log("Judge: building diff...");
 
       const { base: diffBase, head: diffHead } = getBaseAndHead(CI_BASE_SHA, CI_HEAD_SHA);
@@ -428,7 +428,7 @@ export async function run(): Promise<number> {
 
       log("Judge: analyzing diff (this may take a moment)...");
       const judgeResult = await callJudge({
-        decisionRef: lastRef,
+        decisionRef: validatedRef,
         diff: judgeDiffResult.diff,
         truncated: judgeDiffResult.truncated,
         baseSha: judgeDiffResult.base,
