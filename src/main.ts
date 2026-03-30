@@ -82,7 +82,7 @@ export function extractDecisionIds(text: string): string[] {
       ids.add(m[1].trim());
     }
   }
-  return [...ids];
+  return Array.from(ids);
 }
 
 /** Returns whether the ref is an ADR ref (e.g. ADR-001); otherwise treated as decision ID (UUID). */

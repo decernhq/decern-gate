@@ -140,7 +140,7 @@ export function getDiffForJudge(
 
   return {
     diff,
-    excludedFiles: [...new Set(excludedFiles)],
+    excludedFiles: Array.from(new Set(excludedFiles)),
     truncated,
     base,
     head,
