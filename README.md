@@ -40,7 +40,8 @@ npx decern-gate
 | `DECERN_GATE_EXTRA_PATTERNS` | No | Comma-separated list of extra path/basename patterns that require a decision. Paths (containing `/`) match if the file path includes the string (e.g. `my-app/config/`); otherwise treated as basename exact match (e.g. `secret.conf`). Example: `DECERN_GATE_EXTRA_PATTERNS=internal/,config/prod.json`. |
 | `CI_BASE_SHA` | No | Base commit for diff (e.g. target branch). |
 | `CI_HEAD_SHA` | No | Head commit for diff (e.g. current branch). |
-| `CI_PR_TITLE` | No | PR/MR title; used to extract `decern:<id>` if set. |
+| `CI_PR_TITLE` | No | PR/MR title; used to extract `decern:<id>` if set. Also forwarded to the judge so the run is labeled in the dashboard. |
+| `CI_PR_URL` | No | PR/MR URL (e.g. `https://github.com/owner/repo/pull/42`). Forwarded to the judge so the dashboard can link directly to the PR. |
 | `CI_PR_BODY` | No | PR/MR description; used to extract decision refs. |
 | `CI_COMMIT_MESSAGE` | No | Full commit message; used if PR vars are not set. |
 | `DECERN_GATE_JUDGE_ENABLED` | No | When `true` or `1`, the judge step runs after validate. Default: disabled. Requires LLM env vars below (BYO LLM). |
@@ -139,6 +140,8 @@ When validate passes and the judge is **enabled** (`DECERN_GATE_JUDGE_ENABLED=tr
 | `headSha` | string | Git head ref (e.g. `HEAD` or a commit SHA). |
 | `adrRef` | string | **Exactly one of** `adrRef` or `decisionId` is present. ADR reference (e.g. `ADR-002`). |
 | `decisionId` | string | Decision UUID when the ref is not an ADR. |
+| `prTitle` | string (optional) | PR/MR title (from `CI_PR_TITLE`). Stored only — never sent to the LLM. Used by the dashboard to label the gate run. |
+| `prUrl` | string (optional) | PR/MR URL (from `CI_PR_URL`). Stored only — never sent to the LLM. Used by the dashboard to link the gate run back to the PR. |
 | `llm` | object | **Required.** Your LLM config (from env): `baseUrl`, `apiKey`, `model`. Never stored by the backend. |
 
 **Exclusions applied by the CLI before sending:**
@@ -156,6 +159,8 @@ Example request body:
   "baseSha": "origin/main",
   "headSha": "HEAD",
   "adrRef": "ADR-002",
+  "prTitle": "Add postgres adapter",
+  "prUrl": "https://github.com/owner/repo/pull/42",
   "llm": {
     "baseUrl": "https://api.openai.com/v1",
     "apiKey": "sk-...",
@@ -163,6 +168,8 @@ Example request body:
   }
 }
 ```
+
+Each judge call is also persisted to the **Gate runs** dashboard (`/dashboard/gate-runs`) so the workspace can review verdicts, alignment %, and avg confidence for the current month. Only verdicts and PR metadata are stored — never the diff or LLM credentials.
 
 ### Response expected from the judge API
 
@@ -210,6 +217,7 @@ Three snippets for GitHub Actions, GitLab CI, and Jenkins. Set `DECERN_BASE_URL`
     CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
     CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     CI_PR_TITLE: ${{ github.event.pull_request.title }}
+    CI_PR_URL: ${{ github.event.pull_request.html_url }}
     CI_PR_BODY: ${{ github.event.pull_request.body }}
   run: node packages/decern-gate/dist/bin.js
   # or: npx decern-gate
@@ -227,6 +235,7 @@ decern-gate:
     - export CI_BASE_SHA=$CI_MERGE_REQUEST_DIFF_BASE_SHA
     - export CI_HEAD_SHA=$CI_COMMIT_SHA
     - export CI_PR_TITLE=$CI_MERGE_REQUEST_TITLE
+    - export CI_PR_URL=$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID
     - export CI_PR_BODY=$CI_MERGE_REQUEST_DESCRIPTION
     - node packages/decern-gate/dist/bin.js
   variables:
@@ -243,7 +252,7 @@ export DECERN_BASE_URL="https://your-decern-app.com"
 export DECERN_CI_TOKEN="$(cat /run/secrets/decern_ci_token)"
 export CI_BASE_SHA="${GIT_PREVIOUS_COMMIT:-origin/main}"
 export CI_HEAD_SHA="${GIT_COMMIT}"
-# If you have PR title/body in env, set CI_PR_TITLE and CI_PR_BODY
+# If you have PR title/url/body in env, set CI_PR_TITLE, CI_PR_URL, and CI_PR_BODY
 node packages/decern-gate/dist/bin.js
 ```
 
