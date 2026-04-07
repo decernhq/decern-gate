@@ -20,6 +20,7 @@ const CI_BASE_SHA = process.env.CI_BASE_SHA?.trim();
 const CI_HEAD_SHA = process.env.CI_HEAD_SHA?.trim();
 const CI_PR_TITLE = process.env.CI_PR_TITLE?.trim();
 const CI_PR_BODY = process.env.CI_PR_BODY?.trim();
+const CI_PR_URL = process.env.CI_PR_URL?.trim();
 const CI_COMMIT_MESSAGE = process.env.CI_COMMIT_MESSAGE?.trim();
 
 const VALIDATE_PATH = process.env.DECERN_VALIDATE_PATH?.trim() || "/api/decision-gate/validate";
@@ -116,6 +117,8 @@ async function callJudge(params: {
     baseSha: params.baseSha,
     headSha: params.headSha,
   };
+  if (CI_PR_TITLE) body.prTitle = CI_PR_TITLE;
+  if (CI_PR_URL) body.prUrl = CI_PR_URL;
   if (DECERN_JUDGE_LLM_BASE_URL && DECERN_JUDGE_LLM_API_KEY && DECERN_JUDGE_LLM_MODEL) {
     body.llm = {
       baseUrl: DECERN_JUDGE_LLM_BASE_URL,
