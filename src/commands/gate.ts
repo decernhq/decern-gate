@@ -6,6 +6,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { readAdrs } from "../adr/reader.js";
 import { evaluateAdrs } from "../adr/evaluator.js";
@@ -128,7 +129,7 @@ export async function runGate(): Promise<number> {
         exitCode,
         evaluations,
         signals,
-        diffHash: require("node:crypto").createHash("sha256").update(diffResult.diff, "utf-8").digest("hex"),
+        diffHash: createHash("sha256").update(diffResult.diff, "utf-8").digest("hex"),
         diffSizeBytes: Buffer.byteLength(diffResult.diff, "utf-8"),
         changedFiles,
         ciMetadata: ciMeta,
