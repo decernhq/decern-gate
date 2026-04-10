@@ -131,6 +131,9 @@ function getBaseSha(provider: CiProviderKey): string {
   switch (provider) {
     case "github_actions": return process.env.GITHUB_BASE_REF ?? "unknown";
     case "gitlab_ci": return process.env.CI_MERGE_REQUEST_DIFF_BASE_SHA ?? "unknown";
+    case "bitbucket_pipelines": return process.env.BITBUCKET_PR_DESTINATION_COMMIT ?? "unknown";
+    case "jenkins": return process.env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?? process.env.GIT_PREVIOUS_COMMIT ?? "unknown";
+    case "azure_devops": return process.env.SYSTEM_PULLREQUEST_TARGETBRANCH ?? "unknown";
     default: return "unknown";
   }
 }
