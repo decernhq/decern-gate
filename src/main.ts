@@ -6,6 +6,7 @@
 import { execSync } from "child_process";
 import { getBaseAndHead, getDiffForJudge } from "./judge-diff.js";
 import { pathMatchesRequired } from "./required-patterns.js";
+import { collectCiMetadata } from "./ci-metadata.js";
 
 // --- Config from env (never log DECERN_CI_TOKEN) ---
 
@@ -104,6 +105,7 @@ async function callJudge(params: {
   truncated: boolean;
   baseSha: string;
   headSha: string;
+  ciMetadata?: Record<string, unknown>;
 }): Promise<JudgeResult> {
   if (!DECERN_BASE_URL || !DECERN_CI_TOKEN) {
     return { ok: false, status: 0, reason: "DECERN_BASE_URL and DECERN_CI_TOKEN are required." };
@@ -130,6 +132,9 @@ async function callJudge(params: {
     body.adrRef = params.decisionRef.trim();
   } else {
     body.decisionId = params.decisionRef.trim();
+  }
+  if (params.ciMetadata) {
+    body.ci_metadata = params.ciMetadata;
   }
 
   const controller = new AbortController();
@@ -421,6 +426,12 @@ export async function run(): Promise<number> {
 
       const { base: diffBase, head: diffHead } = getBaseAndHead(CI_BASE_SHA, CI_HEAD_SHA);
       const judgeDiffResult = getDiffForJudge(diffBase, diffHead);
+      const ciMetadata = collectCiMetadata(
+        changedFiles,
+        Buffer.byteLength(judgeDiffResult.diff, "utf-8"),
+        judgeDiffResult.base,
+        judgeDiffResult.head,
+      );
 
       if (judgeDiffResult.excludedFiles.length > 0) {
         log(`Warning: the following files were not included in the judge (image, binary, or >1MB): ${formatFileList(judgeDiffResult.excludedFiles)}`);
@@ -436,6 +447,7 @@ export async function run(): Promise<number> {
         truncated: judgeDiffResult.truncated,
         baseSha: judgeDiffResult.base,
         headSha: judgeDiffResult.head,
+        ciMetadata: ciMetadata as unknown as Record<string, unknown>,
       });
 
       if (!judgeResult.ok) {
