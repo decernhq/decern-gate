@@ -8,6 +8,11 @@ async function main(): Promise<number> {
     return runInit();
   }
 
+  if (subcommand === "adr" && process.argv[3] === "sync") {
+    const { runAdrSync } = await import("./commands/adr-sync.js");
+    return runAdrSync();
+  }
+
   if (subcommand === "verify-evidence") {
     const bundlePath = process.argv[3];
     if (!bundlePath) {
@@ -25,7 +30,7 @@ async function main(): Promise<number> {
   }
 
   console.error(`Unknown command: ${subcommand}`);
-  console.error("Usage: decern [gate|init|verify-evidence]");
+  console.error("Usage: decern [gate|init|adr sync|verify-evidence]");
   return 1;
 }
 

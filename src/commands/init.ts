@@ -200,6 +200,20 @@ Focus on real, observable patterns — not hypotheticals.`;
   log(`\n${approved} ADR(s) approved, ${skipped} skipped.`);
   if (approved > 0) {
     log(`ADRs written to ${adrDir}/`);
+
+    // Auto-sync to cloud if configured — otherwise skip silently with a hint.
+    const cloudUrl = process.env.DECERN_BASE_URL?.trim();
+    const ciToken = process.env.DECERN_CI_TOKEN?.trim();
+    if (cloudUrl && ciToken) {
+      log("");
+      const { runAdrSync } = await import("./adr-sync.js");
+      await runAdrSync();
+    } else {
+      log("");
+      log("Tip: set DECERN_BASE_URL + DECERN_CI_TOKEN and run `decern adr sync` to push the ADR index to the dashboard.");
+    }
+
+    log("");
     log("Next: review and commit the ADR files, then configure decern gate in your CI.");
   }
 
