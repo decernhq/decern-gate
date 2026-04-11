@@ -57,6 +57,7 @@ export async function runAdrSync(): Promise<number> {
       enforcement: a.enforcement,
       scope: a.scope,
       contentHash: a.contentHash,
+      body: a.rawContent,
     })),
   };
 
