@@ -79,6 +79,23 @@ function segmentIsBinary(segment: string): boolean {
 }
 
 /**
+ * Returns only the diff segments for files in the given list.
+ * Used to send ADR-scoped diff to the LLM: if an ADR covers src/api/**,
+ * only hunks touching src/api/* are sent, making the eval more focused
+ * and staying within token limits.
+ */
+export function filterDiffByFiles(fullDiff: string, files: string[]): string {
+  if (!fullDiff || files.length === 0) return "";
+  const fileSet = new Set(files.map(f => f.replace(/\\/g, "/")));
+  const segments = splitDiffByFile(fullDiff);
+  const matching = segments.filter(seg => {
+    const p = pathFromSegment(seg);
+    return p && fileSet.has(p);
+  });
+  return matching.join("\n");
+}
+
+/**
  * Builds diff for judge: excludes images and per-file diffs > 1MB; caps total at 2MB.
  */
 export function getDiffForJudge(
