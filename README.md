@@ -1,268 +1,128 @@
 # decern-gate
 
-CLI that gates high-impact changes in CI: if your diff touches migrations, infra, or lockfiles, the pipeline requires a reference to an **approved** decision (e.g. in the PR description or commit message). Works on any CI using only **git** and **env vars** (GitHub Actions, GitLab CI, Jenkins, Bitbucket, Azure DevOps).
+CI gate that evaluates every pull request against your Architecture Decision Records (ADRs) using your BYO LLM. Blocks violations, warns on ambiguity, and detects new architectural patterns not covered by existing ADRs.
 
-## Usage (local)
-
-```bash
-# Build (from repo root or package dir)
-cd packages/decern-gate && npm install && npm run build
-
-# Run (set env first)
-export DECERN_BASE_URL=https://your-app.vercel.app
-export DECERN_CI_TOKEN=your-workspace-ci-token
-node dist/bin.js
-# or, if linked: decern-gate
-```
-
-From repo root:
+## Commands
 
 ```bash
-node packages/decern-gate/dist/bin.js
+decern gate              # Evaluate PR against ADRs (default)
+decern init              # Bootstrap: analyze codebase, propose ADR drafts
+decern adr sync          # Push ADR index to cloud dashboard
+decern verify-evidence   # Verify an evidence export bundle
 ```
 
-Or via npx (once published):
+## How the gate works
 
-```bash
-npx decern-gate
-```
+1. Reads approved ADRs from `docs/adr/*.md` (local filesystem)
+2. Gets the PR diff (`git diff base...head`)
+3. **Scope pre-filter**: skips ADRs whose glob patterns don't match changed files
+4. **LLM evaluation**: for each relevant ADR, sends a scope-filtered diff to your BYO LLM (concurrent, limit configurable)
+5. **Confidence threshold**: violations below threshold are degraded from blocking to warning
+6. **Signal detection**: in parallel, scans for new architectural patterns not covered by any ADR (1-3 signals max)
+7. Reports evidence to cloud (if configured)
 
-## Configuration
+## Verdicts
 
-### Environment variables
+| Result | Meaning | Blocks CI? |
+|---|---|---|
+| `pass` | Diff respects the ADR | No |
+| `violation` + `blocking` + confidence >= threshold | Clear violation | **Yes** |
+| `violation` + `blocking` + confidence < threshold | Ambiguous, degraded to warning | No |
+| `violation` + `warning` | Advisory only | No |
+| `unrelated` | ADR not relevant to this diff | No |
+| `skipped` | Scope pre-filter, no LLM call | No |
+| `error` | LLM failure, fail-open | No (logged) |
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DECERN_BASE_URL` | Yes (when decision required) | Base URL of the Decern app (e.g. `https://app.example.com`). No trailing slash. |
-| `DECERN_CI_TOKEN` | Yes (when decision required) | CI token for the workspace (from Decern Dashboard → Workspace → Token CI). Never logged. |
-| `DECERN_GATE_TIMEOUT_MS` | No | Timeout for the validate API call in ms. Default: `5000`. |
-| `DECERN_VALIDATE_PATH` | No | Path to the validate endpoint. Default: `/api/decision-gate/validate`. |
-| `DECERN_GATE_EXTRA_PATTERNS` | No | Comma-separated list of extra path/basename patterns that require a decision. Paths (containing `/`) match if the file path includes the string (e.g. `my-app/config/`); otherwise treated as basename exact match (e.g. `secret.conf`). Example: `DECERN_GATE_EXTRA_PATTERNS=internal/,config/prod.json`. |
-| `CI_BASE_SHA` | No | Base commit for diff (e.g. target branch). |
-| `CI_HEAD_SHA` | No | Head commit for diff (e.g. current branch). |
-| `CI_PR_TITLE` | No | PR/MR title; used to extract `decern:<id>` if set. Also forwarded to the judge so the run is labeled in the dashboard. |
-| `CI_PR_URL` | No | PR/MR URL (e.g. `https://github.com/owner/repo/pull/42`). Forwarded to the judge so the dashboard can link directly to the PR. |
-| `CI_PR_BODY` | No | PR/MR description; used to extract decision refs. |
-| `CI_COMMIT_MESSAGE` | No | Full commit message; used if PR vars are not set. |
-| `DECERN_GATE_JUDGE_ENABLED` | No | When `true` or `1`, the judge step runs after validate. Default: disabled. Requires LLM env vars below (BYO LLM). |
-| `DECERN_JUDGE_PATH` | No | Path to the judge endpoint. Default: `/api/decision-gate/judge`. |
-| `DECERN_GATE_JUDGE_TIMEOUT_MS` | No | Timeout for the judge API call in ms. Default: `60000`. |
-| `DECERN_JUDGE_LLM_BASE_URL` | No | BYO LLM: API base URL (e.g. `https://api.openai.com/v1`, `https://api.anthropic.com`). If all three `LLM_*` vars are omitted, Decern fair-use LLM is used. Never logged. |
-| `DECERN_JUDGE_LLM_API_KEY` | No | BYO LLM: API key. Used only for the judge request, never stored or logged. |
-| `DECERN_JUDGE_LLM_MODEL` | No | BYO LLM: model name (e.g. `gpt-4o-mini`, `claude-3-5-sonnet-20241022`). |
-| `DECERN_JUDGE_MIN_CONFIDENCE` | No | Min confidence (0–1, e.g. `0.8` = 80%). If set, the gate blocks when the judge returns `allowed: true` but `confidence` is below this value. Omit to accept the backend threshold. |
+## Environment variables
 
-If `CI_BASE_SHA` and `CI_HEAD_SHA` are not set, the CLI tries `origin/main...HEAD`, then `origin/master...HEAD`, then `HEAD~1...HEAD`.
+### Required
 
-#### How to get DECERN_CI_TOKEN (workspace CI token)
+| Variable | Description |
+|---|---|
+| `DECERN_LLM_BASE_URL` | LLM API base URL (e.g. `https://api.anthropic.com` or `https://api.openai.com/v1`) |
+| `DECERN_LLM_API_KEY` | LLM API key |
+| `DECERN_LLM_MODEL` | Model ID (e.g. `claude-sonnet-4-6`, `gpt-4o`) |
 
-The **workspace CI token** is created in the Decern app: open **Dashboard → Workspace** (the workspace you use for the repo), then the section **Token CI (Decision Gate)**. Only the workspace owner can generate or revoke it. The token is shown **once** at creation; store it in your CI secrets (e.g. `DECERN_CI_TOKEN`). It is never logged by the CLI.
+### Optional
 
-#### DECERN_VALIDATE_PATH (default + override)
+| Variable | Default | Description |
+|---|---|---|
+| `DECERN_ADR_DIR` | `docs/adr` | Path to ADR directory |
+| `DECERN_BASE_URL` | — | Cloud dashboard URL (enables reporting) |
+| `DECERN_CI_TOKEN` | — | Workspace CI token (enables reporting) |
+| `DECERN_CONFIDENCE_THRESHOLD` | `0.75` | Min confidence to block (0-1) |
+| `DECERN_EVAL_CONCURRENCY` | `3` | Max parallel LLM calls for ADR evaluation |
+| `CI_BASE_SHA` | auto-detected | Base commit for diff |
+| `CI_HEAD_SHA` | auto-detected | Head commit for diff |
+| `CI_PR_URL` | — | PR URL (for cloud PR comments) |
+| `CI_PR_TITLE` | — | PR title |
 
-By default the CLI calls `/api/decision-gate/validate`. To use a different path (e.g. a proxy or another deployment), set `DECERN_VALIDATE_PATH` to the path only (e.g. `/api/v1/validate`). The URL is built from `DECERN_BASE_URL` + this path; the `decisionId` query param is always set by the CLI. Override only if your Decern instance exposes the validate endpoint elsewhere.
+## Recommended models
 
-### Example command and output
+Tested and recommended for production: `claude-sonnet-4-6`, `claude-opus-4-6`, `gpt-4o`, `gpt-4.1`, `gpt-5`, `gemini-2.5-pro`.
 
-```bash
-export DECERN_BASE_URL=https://app.example.com
-export DECERN_CI_TOKEN=your-token
-node dist/bin.js
-```
-
-Example output when no high-impact files changed:
-
-```
-Changed files: 3
-Decision required: NO
-Reason: No high-impact file patterns matched.
-```
-
-### Validate endpoint (curl)
-
-The CLI calls `GET ${DECERN_BASE_URL}${DECERN_VALIDATE_PATH}?decisionId=<id>` with a Bearer token. Example without a real token:
-
-```bash
-curl -s -H "Authorization: Bearer YOUR_CI_TOKEN" \
-  "https://your-app.example.com/api/decision-gate/validate?decisionId=550e8400-e29b-41d4-a716-446655440000"
-```
-
-Response when approved: `200` with `{"valid":true,"decisionId":"...","status":"approved"}`. Otherwise `401`, `404`, or `422` with `{"valid":false,"reason":"..."}`.
-
-## How it works
-
-1. **Changed files** — `git diff --name-only base...head`.
-2. **Policy** — If any file matches high-impact patterns (migrations, Dockerfile, lockfiles, workflows, etc.), a decision is **required**.
-3. **Extract refs** — From PR title/body or commit message: `decern:<id>`, `DECERN-<id>`, or URLs containing `/decisions/<id>`. If multiple refs are present, only the **last** one is used for the judge step.
-4. **Validate** — Calls `GET ${DECERN_BASE_URL}/api/decision-gate/validate?decisionId=<id>` (or `adrRef=...`) with `Authorization: Bearer ${DECERN_CI_TOKEN}`. If no referenced decision is approved, the gate blocks and the judge step is **not** run. Enforcement policy (blocking vs observation, high-impact) is determined server-side based on plan and workspace settings.
-5. **Judge** (optional, when `DECERN_GATE_JUDGE_ENABLED` is set to `true`) — After validate passes, calls `POST ${DECERN_BASE_URL}${DECERN_JUDGE_PATH}` with the **full diff** (subject to exclusions and a 2MB cap; see [Judge (LLM as a judge)](#judge-llm-as-a-judge)), the single decision ref (ADR or decision ID), and the **LLM config** (BYO: `DECERN_JUDGE_LLM_*`). The backend uses that LLM to decide whether the diff is consistent with the decision. If the judge returns `allowed: false` and the response is not **advisory**, the gate blocks.
-
-**Fail-closed:** Timeout, network error, or 5xx → exit 1. Never log the token.
-
-## Trunk-based development
-
-decern-gate works with a **trunk-based** workflow (single main branch, direct pushes or short-lived branches) **only if CI passes explicit refs**.
-
-- **With `CI_BASE_SHA` and `CI_HEAD_SHA` set** — It works as intended. Configure CI so that:
-  - **Base** = commit before the push (e.g. previous main tip or `GIT_PREVIOUS_COMMIT`)
-  - **Head** = current commit (e.g. `GIT_COMMIT` or `HEAD`)
-
-  The Jenkins example in [CI examples](#ci-examples) already does this for pushes to main: `CI_BASE_SHA="${GIT_PREVIOUS_COMMIT:-origin/main}"` and `CI_HEAD_SHA="${GIT_COMMIT}"`. The diff is then “what this push changed” and the gate applies correctly.
-
-- **Without `CI_BASE_SHA` / `CI_HEAD_SHA` (fallback only)** — Behavior is wrong for direct pushes to main. The fallback uses `origin/main...HEAD` (or `origin/master...HEAD`). On a direct push to main, after the push `origin/main` and `HEAD` are the same commit, so the diff is empty → no changed files → the gate always passes and never checks decisions.
-
-**Summary:** Use trunk-based with decern-gate by having CI set `CI_BASE_SHA` and `CI_HEAD_SHA` (e.g. previous commit vs current commit). Relying on the default fallback is not suitable for direct pushes to main.
-
-## Judge (LLM as a judge)
-
-When validate passes and the judge is **enabled** (`DECERN_GATE_JUDGE_ENABLED=true`), the CLI calls a **judge** endpoint so that the Decern backend uses an LLM to check whether the **diff is consistent with** the referenced decision. The judge is **BYO LLM**: you set `DECERN_JUDGE_LLM_BASE_URL`, `DECERN_JUDGE_LLM_API_KEY`, and `DECERN_JUDGE_LLM_MODEL`; the CLI sends them in the request body and the backend uses them only for that request (keys are never stored). The judge is **disabled by default**; the judge runs only after validate, and if validate fails, the CI is blocked and the judge is never called.
-
-### Flow
-
-1. **Validate** — High-impact change detected and at least one decision ref present. CLI calls validate; if `valid` is not `true`, gate blocks and **judge is not called**.
-2. **Check LLM env** — If judge is enabled but any of `DECERN_JUDGE_LLM_BASE_URL`, `DECERN_JUDGE_LLM_API_KEY`, or `DECERN_JUDGE_LLM_MODEL` is missing, the gate blocks with a clear error.
-3. **Build diff** — CLI builds the full `git diff base...head` with exclusions and cap (see below).
-4. **Call judge** — `POST` to `DECERN_JUDGE_PATH` with the payload below (including the `llm` object). One decision only: if multiple refs were found (e.g. ADR-001 and ADR-002), the **last** one (e.g. ADR-002) is sent.
-5. **Result** — Backend returns `allowed`, optional `reason`, and optional `advisory`. If `advisory === true` and `allowed === false`, the CLI does **not** block (logs a warning and passes). Otherwise, gate passes only when `allowed === true`.
-
-### Payload sent to the judge API
-
-`POST ${DECERN_BASE_URL}${DECERN_JUDGE_PATH}` with:
-
-- **Headers:** `Content-Type: application/json`, `Authorization: Bearer ${DECERN_CI_TOKEN}`.
-- **Body (JSON):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `diff` | string | Full unified diff (`git diff base...head`), with exclusions applied and total size capped at **2 MB**. |
-| `truncated` | boolean | `true` if the diff was truncated to 2 MB (backend may treat as partial context). |
-| `baseSha` | string | Git base ref used for the diff (e.g. `origin/main` or a commit SHA). |
-| `headSha` | string | Git head ref (e.g. `HEAD` or a commit SHA). |
-| `adrRef` | string | **Exactly one of** `adrRef` or `decisionId` is present. ADR reference (e.g. `ADR-002`). |
-| `decisionId` | string | Decision UUID when the ref is not an ADR. |
-| `prTitle` | string (optional) | PR/MR title (from `CI_PR_TITLE`). Stored only — never sent to the LLM. Used by the dashboard to label the gate run. |
-| `prUrl` | string (optional) | PR/MR URL (from `CI_PR_URL`). Stored only — never sent to the LLM. Used by the dashboard to link the gate run back to the PR. |
-| `llm` | object | **Required.** Your LLM config (from env): `baseUrl`, `apiKey`, `model`. Never stored by the backend. |
-
-**Exclusions applied by the CLI before sending:**
-
-- **Images and heavy assets** — Files with extensions such as `.png`, `.jpg`, `.gif`, `.webp`, `.svg`, `.mp4`, `.pdf`, `.woff2`, etc. are **excluded** from the diff. The CLI logs a warning listing these paths; they are not sent to the backend and are not judged.
-- **Per-file size** — If one file’s diff (patch) is larger than **1 MB**, that file’s diff is excluded and a warning is logged.
-- **Total size** — The concatenated diff sent in `diff` is at most **2 MB**. If the total would exceed 2 MB, the CLI truncates and sets `truncated: true`.
-
-Example request body:
-
-```json
-{
-  "diff": "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,3 +1,4 @@\n ...",
-  "truncated": false,
-  "baseSha": "origin/main",
-  "headSha": "HEAD",
-  "adrRef": "ADR-002",
-  "prTitle": "Add postgres adapter",
-  "prUrl": "https://github.com/owner/repo/pull/42",
-  "llm": {
-    "baseUrl": "https://api.openai.com/v1",
-    "apiKey": "sk-...",
-    "model": "gpt-4o-mini"
-  }
-}
-```
-
-Each judge call is also persisted to the **Gate runs** dashboard (`/dashboard/gate-runs`) so the workspace can review verdicts, alignment %, and avg confidence for the current month. Only verdicts and PR metadata are stored — never the diff or LLM credentials.
-
-### Response expected from the judge API
-
-- **Status:** `200 OK` (even when the gate would block; blocking is indicated by `allowed: false`).
-- **Body (JSON):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `allowed` | boolean | `true` if the change meets the confidence threshold; `false` otherwise. |
-| `reason` | string (optional) | Short explanation (e.g. for logs or CI output). |
-| `advisory` | boolean (optional) | When `true`, the result is advisory only: the CLI **must not** block on `allowed: false`. When absent or `false`, the CLI may block. |
-| `confidence` | number (optional) | Score 0–1 from the judge (e.g. 0.85 = 85%). The CLI shows “Passed at X%” and can enforce `DECERN_JUDGE_MIN_CONFIDENCE` if set. |
-| `advisoryMessage` | string (optional) | When `allowed: true` but confidence &lt; 100%, a short note on what was not fully aligned. The CLI shows “Advisory: …”. |
-
-Example success: `{"allowed": true, "reason": "Change aligns with ADR-002.", "advisory": true, "confidence": 1}`  
-Example pass with advisory: `{"allowed": true, "reason": "Change aligns.", "advisory": true, "confidence": 0.85, "advisoryMessage": "Error handling could better match the decision."}` — CLI shows “Passed at 85%” and the advisory message.  
-Example block (can block CI): `{"allowed": false, "reason": "Diff introduces a new DB column not mentioned in the decision."}`  
-Example advisory (do not block): `{"allowed": false, "reason": "...", "advisory": true}` — CLI logs a warning and passes.
-
-On non-2xx or network error, the CLI treats the judge as failed and **blocks** the gate (fail-closed).
-
-If the backend returns `allowed: false` with `advisory: true`, the CLI **does not block**: it logs a warning and passes the gate. On **Free** the judge is always advisory; on **Team** and **Business+** the judge can block (when workspace policy "Judge blocking" is on, which is the default).
-
-### Backend implementation guide (Decern or your service)
-
-The endpoint receives the judge payload including the **`llm`** object (user's BYO config). It should:
-
-1. **Authenticate** — Verify `Authorization: Bearer <DECERN_CI_TOKEN>`.
-2. **Resolve the decision** — Using `adrRef` or `decisionId`, load the decision content (title, body, conclusion) from your store.
-3. **Run the LLM judge** — Use the provided `llm.baseUrl`, `llm.apiKey`, and `llm.model` for this request only (never store or log the key). Call the LLM (Anthropic native or OpenAI-compatible per `baseUrl`), prompt with the decision text and the `diff`, and get a structured verdict (`allowed`, `reason`).
-4. **Handle large diffs** — The payload is already capped at 2 MB and may be marked `truncated: true`. Use truncation or summarize-then-judge as needed. Fail-closed: on LLM timeout or error, return `200` with `allowed: false` and a reason.
-5. **Return** — Respond with `200` and `{ "allowed": true|false, "reason": "...", "advisory": true }` when the plan or workspace policy is advisory-only; omit `advisory` or set `false` when the client may block.
+Smaller models (gpt-4o-mini, claude-haiku) work but produce more false negatives. A runtime warning is logged when using a non-recommended model.
 
 ## CI examples
 
-Three snippets for GitHub Actions, GitLab CI, and Jenkins. Set `DECERN_BASE_URL` and `DECERN_CI_TOKEN` as secrets or variables in your CI.
-
-### 1) GitHub Actions
+### GitHub Actions
 
 ```yaml
 - name: Decern gate
+  run: npx decern gate
   env:
+    DECERN_LLM_BASE_URL: https://api.anthropic.com
+    DECERN_LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    DECERN_LLM_MODEL: claude-sonnet-4-6
     DECERN_BASE_URL: ${{ secrets.DECERN_BASE_URL }}
     DECERN_CI_TOKEN: ${{ secrets.DECERN_CI_TOKEN }}
-    CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-    CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    CI_PR_TITLE: ${{ github.event.pull_request.title }}
     CI_PR_URL: ${{ github.event.pull_request.html_url }}
-    CI_PR_BODY: ${{ github.event.pull_request.body }}
-  run: node packages/decern-gate/dist/bin.js
-  # or: npx decern-gate
 ```
 
-For push (no PR), omit `CI_PR_*`; the CLI will use the last commit message.
-
-### 2) GitLab CI
+### GitLab CI
 
 ```yaml
 decern-gate:
-  script:
-    - export DECERN_BASE_URL=$DECERN_BASE_URL
-    - export DECERN_CI_TOKEN=$DECERN_CI_TOKEN
-    - export CI_BASE_SHA=$CI_MERGE_REQUEST_DIFF_BASE_SHA
-    - export CI_HEAD_SHA=$CI_COMMIT_SHA
-    - export CI_PR_TITLE=$CI_MERGE_REQUEST_TITLE
-    - export CI_PR_URL=$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID
-    - export CI_PR_BODY=$CI_MERGE_REQUEST_DESCRIPTION
-    - node packages/decern-gate/dist/bin.js
+  script: npx decern gate
   variables:
-    DECERN_BASE_URL: $DECERN_BASE_URL
-    DECERN_CI_TOKEN: $DECERN_CI_TOKEN
+    DECERN_LLM_BASE_URL: https://api.anthropic.com
+    DECERN_LLM_API_KEY: $ANTHROPIC_API_KEY
+    DECERN_LLM_MODEL: claude-sonnet-4-6
 ```
 
-Set `DECERN_BASE_URL` and `DECERN_CI_TOKEN` in GitLab CI/CD variables (masked).
+## ADR format
 
-### 3) Jenkins (generic shell)
+```yaml
+---
+id: ADR-007
+title: Use PostgreSQL for persistence
+status: approved
+enforcement: blocking
+scope:
+  - src/db/**
+  - migrations/**
+supersedes: null
+date: 2026-04-10
+---
 
-```bash
-export DECERN_BASE_URL="https://your-decern-app.com"
-export DECERN_CI_TOKEN="$(cat /run/secrets/decern_ci_token)"
-export CI_BASE_SHA="${GIT_PREVIOUS_COMMIT:-origin/main}"
-export CI_HEAD_SHA="${GIT_COMMIT}"
-# If you have PR title/url/body in env, set CI_PR_TITLE, CI_PR_URL, and CI_PR_BODY
-node packages/decern-gate/dist/bin.js
+## Context
+...
+
+## Decision
+...
+
+## Consequences
+...
 ```
 
-## Output (deterministic)
+## Evidence
 
-- `Changed files: N`
-- `Decision required: YES` or `NO` + reason
-- `References: found N ref(s) — id1, id2` or `none`
-- Per-decision validate result: `Decision <id>: valid.` or `FAIL — <reason>`
-- If judge enabled: `Judge: checking diff against decision <ref>...`, optional warnings for excluded/truncated diff, then `Judge: allowed.` or `Gate: blocked — judge: <reason>`
-- `Gate: passed.` or `Gate: blocked — ...`
+When `DECERN_BASE_URL` + `DECERN_CI_TOKEN` are set, the gate reports to the cloud:
+- Hash-chained, Ed25519-signed evidence record per gate run
+- ADR evaluations with confidence scores
+- Signal data (Case C)
+- PR comments for violations and nudges
 
-Exit 0 only when: (1) no high-impact patterns matched, or (2) at least one referenced decision is validated as approved **and** (if judge is enabled) the judge returns `allowed: true`.
+## License
+
+Apache-2.0
